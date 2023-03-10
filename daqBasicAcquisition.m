@@ -10,9 +10,10 @@ function [] = daqBasicAcquisition()
 rundata = struct();
 rundata.sampling_freq = 10e3; % Hz
 rundata.viewTime = 5;  % Seconds
-rundata.channels = arrayfun(@num2str,1:10,'UniformOutput',false);
+rundata.channels = arrayfun(@num2str,1:20,'UniformOutput',false);
 rundata.deviceName = 'Dev1';
 rundata.channelNum = 1;
+rundata.selected_channels = 0:rundata.channelNum-1;
 rundata.saveFolder = pwd;
 rundata.saveName = getFileName(rundata.saveFolder,rundata.channelNum);
 
@@ -61,7 +62,7 @@ handles.channelNum = uicontrol( ...
     'Style', 'text', ...
     'Units', 'Normalized', ...
     'Position', [0.0202020202020202,0.0666666666666665,0.306397306397306,0.152380952380952],...
-    'String', {strcat('Input Channels: ',num2str(rundata.channelNum))});
+    'String', {strcat('Input Channels: ',num2str(rundata.channelNum), '; Selection: Auto')});
 
 handles.recordingStat = uicontrol( ...
     'Parent', handles.basicAq, ...
@@ -70,7 +71,7 @@ handles.recordingStat = uicontrol( ...
     'Units', 'Normalized', ...
     'Position', [0.420875420875421,0.0571428571428572,0.548821548821549,0.133333333333334],...
     'ForegroundColor', [0.584 0.388 0.388], ...
-    'String', {'Recording Status: Off'});
+    'String', {sprintf('Recording Status: Off; Sampling freq: %.2g', rundata.sampling_freq)});
 
 
 % --- PUSHBUTTONS -------------------------------------
@@ -106,6 +107,15 @@ handles.stop_basic = uicontrol( ...
     'String', 'Stop', ...
     'Callback', @stop_basic_Callback);
 
+handles.select_channels = uicontrol( ...
+    'Parent', handles.basicAq, ...
+    'Tag', 'select_channels', ...
+    'Style', 'pushbutton', ...
+    'Units', 'Normalized', ...
+    'Position', [0.18,0.285714285714286,0.125,0.190476190476191],...
+    'String', 'Select channels', ...
+    'Callback', @select_channels_Callback);
+
 
 % --- POPUP MENU -------------------------------------
 handles.channels = uicontrol( ...
@@ -113,7 +123,7 @@ handles.channels = uicontrol( ...
     'Tag', 'channels', ...
     'Style', 'popupmenu', ...
     'Units', 'Normalized', ...
-    'Position', [0.0202020202020202,0.285714285714286,0.313131313131313,0.190476190476191],...
+    'Position', [0.0202020202020202,0.285714285714286,0.156565656565656,0.190476190476191],...
     'BackgroundColor', [1 1 1], ...
     'String', rundata.channels, ...
     'Callback', @channels_Callback, ...
@@ -148,7 +158,7 @@ handles = getappdata(0,'handles');
 rundata = getappdata(0,'rundata');
 % Start the daq session
 daq_session = daq.createSession('ni');
-daq_session.addAnalogInputChannel(rundata.deviceName,0:rundata.channelNum-1,'Voltage');
+daq_session.addAnalogInputChannel(rundata.deviceName,rundata.selected_channels,'Voltage');
 daq_session.Rate = rundata.sampling_freq;
 % Add plot data
 fig_handle = figure('Units','Pixels','Position',[320 60 1260 960]);
@@ -173,7 +183,7 @@ experimentLogger(1);
 
 % Set Status
 set(handles.recordingStat,'ForegroundColor', [0 0.498 0], ...
-    'String', {'Recording Status: ON'});    
+    'String', {sprintf('Recording Status: ON; Sampling freq: %.2g', rundata.sampling_freq)});    
 
 handles.fig_handle = fig_handle;
 handles.plot_handles = plot_handles;
@@ -208,7 +218,7 @@ handles = rmfield(handles,'plot_handles');
 
 % Set Status
 set(handles.recordingStat,'ForegroundColor', [0.584 0.388 0.388], ...
-    'String', {'Recording Status: Off'});
+    'String', {sprintf('Recording Status: Off; Sampling freq: %.2g', rundata.sampling_freq)});
 
 % Update Filename
 rundata.saveName = getFileName(rundata.saveFolder,rundata.channelNum);
@@ -221,12 +231,34 @@ setappdata(0,'rundata',rundata);
 end
 
 %% ---------------------------------------------------------------------------
+function select_channels_Callback(hObject,evendata) %#ok<INUSD>
+handles = getappdata(0,'handles');
+rundata = getappdata(0,'rundata');
+% get channel selections
+
+ch = inputdlg(arrayfun(@(x) sprintf('Channel %d',x), 1:rundata.channelNum, 'UniformOutput', false)); 
+if (size(ch,1)~= rundata.channelNum) || any(isnan(str2double(ch)))
+    warning('Wrong number of inputs or characters instead of numbers. Continuing in auto mode');
+    return;
+else
+    ch = str2double(ch);
+    rundata.selected_channels = ch';
+    set(handles.channelNum,'String',{strcat('Input Channels: ',num2str(rundata.channelNum), '; Selection: Manual')});
+end
+
+% Save necessary data
+setappdata(0,'handles',handles);
+setappdata(0,'rundata',rundata);
+end
+
+%% ---------------------------------------------------------------------------
 function channels_Callback(hObject,evendata) %#ok<INUSD>
 handles = getappdata(0,'handles');
 rundata = getappdata(0,'rundata');
 % Get Channel Info
 rundata.channelNum = str2double(rundata.channels(get(handles.channels,'Value')));
-set(handles.channelNum,'String',{strcat('Input Channels: ',num2str(rundata.channelNum))});
+rundata.selected_channels = 0:rundata.channelNum-1;
+set(handles.channelNum,'String',{strcat('Input Channels: ',num2str(rundata.channelNum), '; Selection: Auto')});
 rundata.saveName = getFileName(rundata.saveFolder,rundata.channelNum);
 % Update file name
 set(handles.setDir,'String', {strjoin(strsplit(rundata.saveName(length(rundata.saveName)-iff(length(rundata.saveName)-1>=75,75,length(rundata.saveName)-1):end),' '),'_')});
@@ -324,4 +356,9 @@ else
     out = b;
 end
 
+end
+
+function logData(src, evt, fid)
+    data = [evt.TimeStamps, evt.Data]' ;
+    fwrite(fid,data,'double');
 end
